@@ -1,0 +1,21 @@
+{
+  "name": "node-project",
+  "version": "1.0.0",
+  "description": "node project",
+  "main": "app.js",
+  "scripts": {
+    "start": "node app",
+    "dev": "nodemon app"
+  },
+  "author": "Rommel Caneos",
+  "license": "ISC",
+  "devDependencies": {
+    "nodemon": "^2.0.22"
+  },
+  "dependencies": {
+    "ejs": "^3.1.9",
+    "reconnecting-websocket": "^4.4.0",
+    "uuid": "^9.0.0",
+    "ws": "^8.13.0"
+  }
+}
