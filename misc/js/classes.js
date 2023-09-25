@@ -19,7 +19,7 @@ class Util {
 		return arr;
 	} 
 	static checkErrStatus(res){
-		console.log(res);
+		
 		if (res.ok == true){
 			return res.json();
 		}else{
@@ -27,14 +27,13 @@ class Util {
 		}
 	}
 	static wsSend(socket,sendData,callback){
-		console.log('sending data!');
+		
 		socket.send(JSON.stringify(sendData));
 
-		socket.onmessage = event => {
+		socket.onmessage = (event) => {
 			const dataObjReceived = JSON.parse(event.data);
-			console.log('responce data from server', dataObjReceived);
-
-			if(dataObjReceived.hasOwnProperty('nameExistAndSid')){
+			console.log("data from server: ",dataObjReceived);
+			if(dataObjReceived.hasOwnProperty('accountInfo')){
 				callback(dataObjReceived);
 			}
 			
@@ -50,54 +49,59 @@ class Util {
 	}
 
 	// FOR VALIDATION ON USERS ACCOUNT STATUS
-	static validationWSResponse(socket,checkNameAndSid,validationPrompt,name){
-		Util.wsSend(socket,checkNameAndSid, (data)=>{
-    		console.log('data received submit form:', data);
+	static validationWSResponse(form,socket,nameData,validationPrompt,name){
+		Util.wsSend(socket,nameData, (data)=>{
+			console.log('data: ',data);
     		// IF THERES A COOKIE SESSION EXISTED 
-    		if(data.haveSid === true){
-    			// IF HAS COOKIE BUT THE NAME DONT MATCH IN JSON FILE
-    			if(data.nameExistAndSid.hasName === true && 
-	    			data.nameExistAndSid.sidMatch === false){
-	    			validationPrompt.innerHTML = `The name ${name} is already been taken, try another name.`;
-	    		// IF HAS COOKIE AND THE NAME MATCHED IN JSON FILE LET THE USER LOGIN THE GAME
-	    		}else if(data.nameExistAndSid.hasName === true && data.nameExistAndSid.sidMatch === true){
-	    			console.log("user exist!");
-	    			window.location.href = '/main';
-	    		// IF HAS COOKIE AND NO NAME MATCHED IN JSON FILE DONT ALLOW TO REGISTER NEW ACCOUNT COZ THERE SHOULD BE AN ACCOUNT IF COOKIE EXISTED 
-	    		}else if(data.nameExistAndSid.hasName === false && data.nameExistAndSid.hasOwnProperty('existedName')){
-	    			validationPrompt.innerHTML = `You already have an account named ${data.nameExistAndSid.existedName}, you cannot create new account.`;
-	    		// IF HAS COOKIE AND NO NAME MATCHED IN JSON AND THE NAMED ENTERED WAS NOT AVAILABLE IN JSON FILE SUBMIT THE FORM
-	    		}else if(data.nameExistAndSid.hasName === false && !data.nameExistAndSid.hasOwnProperty('existedName')){
-	    			e.target.submit();
-	    		}
-	    	// ELSE IF NO COOKIE SESSION EXISTED BUT HAS NAME MATCHED IN JSON FILE, MEANS THE COOKIE SESSION EXPIRED OR THE USER DELETED COOKIE IN THE BROWSER, THEN EDIT THE JSON FILE WITH NEW USER ID AND APPLY THAT NAME AS A NEW ACCOUNT. 
-    		}else if(data.haveSid === false && data.nameExistAndSid.hasName === true){
-				let receivedData = { newUUIDKey: data.nameExistAndSid.newKey };
-				const queryParams = Object.entries(receivedData)
-					.map(([key, value])=>`${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
-					.join('&');
-					console.log(queryParams);
-				window.location.href = `/main?${queryParams}`;
-    		// ELSE NO COOKIE SESSION EXISTED AND NO EXISTING NAME THEN MAKE NEW COOKIE AND NEW ACCOUNT NAME
-    		// HENCE SUBMIT THE FORM TO THE SERVER
+    		if(data.accountInfo.hasName === true){
+    			// IF HAS NAME, COOKIE MATCH AND IP MATCH IN JSON FILE LET THE USER LOGIN THE GAME
+    			if(data.accountInfo.sidMatch === true && data.accountInfo.ipMatch === true){
+    				window.location.href = '/';
+
+    			// IF HAS NAME BUT COOKIE DONT MATCH AND IP DONT MATCH
+	    		}else if(data.accountInfo.sidMatch === false && data.accountInfo.ipMatch === false
+	    			){
+	    			validationPrompt.innerHTML = `The name ${name} is already taken, try a different name.`;
+	    			
+	    		// IF HAS NAME AND COOKIE NOT MATCHED BUT IP MATCHED IN JSON FILE, MEANS THE COOKIE SESSION MAYBE EXPIRED OR DELETED BY THE USER IN THE BROWSER, THEN EDIT THE JSON FILE WITH NEW USER ID AND APPLY THAT NAME AS A NEW ACCOUNT AND LOGGED THE USER IN
+	    		}else if(data.accountInfo.sidMatch === false && data.accountInfo.ipMatch === true){
+					let receivedData = { newUUIDKey: data.accountInfo.newKey };
+					const queryParams = Object.entries(receivedData)
+						.map(([key, value])=>`${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
+						.join('&');
+						
+					window.location.href = `/set?${queryParams}`;
+				}
+
     		}else{
-	    		validationPrompt.innerHTML = ''; 
-	      		e.target.submit();
-    		}
+    			// IF NAME DONT MATCHED AND COOKIE MATCHED OR COOKIE DONT MATCHED BUT IP MATCHED DONT ALLOW TO REGISTER NEW ACCOUNT BECAUSE USER ALREADY HAVE AN ACCOUNT AVAILABLE
+	    		if(data.accountInfo.sidMatch === true && data.accountInfo.hasName === false && data.accountInfo.ipMatch === true){
+	    			validationPrompt.innerHTML = `You already have an account named ${data.accountInfo.userName}, Only one account is allowed.`;
+	    		}else if(data.accountInfo.sidMatch === false && data.accountInfo.hasName === false && data.accountInfo.ipMatch === true){
+	    			validationPrompt.innerHTML = `You already have an account named ${data.accountInfo.userName}, Only one account is allowed.`;
+
+	    		// ELSE NO COOKIE SESSION EXISTED AND NO EXISTING NAME THEN MAKE NEW COOKIE AND NEW ACCOUNT NAME
+	    		// HENCE SUBMIT THE FORM TO THE SERVER
+	    		}else if(data.accountInfo.sidMatch === false && data.accountInfo.hasName === false && data.accountInfo.ipMatch === false){
+		    		validationPrompt.innerHTML = ''; 
+		      		form.submit();
+	    		}
+	    	}
     	});
 	};
 
-	static playerRegistryValidation(socket,regex){
+	static playerRegistryValidation(form,socket,regex){
 	    const nameInput = Util.tag('input','name','name');
 	    const validationPrompt = Util.tag('p','id','alertText');
 	    // VALIDATION FOR INCORRECT NAME INPUT
 	    if (!regex.test(nameInput.value)) {
-	      	validationPrompt.innerHTML = `Must be 8 characters lowercase letters, numbers and underscore only`;
+	      	validationPrompt.innerHTML = `Must be 8 character lowercase letters, numbers and underscore only`;
 	    } else {
 		// VALIDATION FOR EXISTING ACCOUNT NAMES
-	    	let checkNameAndSid = {checkName: true, name: nameInput.value};
+	    	console.log("websocket: ",socket);
+	    	let nameData = {type: "checkName", name: nameInput.value};
 	    	if(socket.readyState === WebSocket.OPEN){
-	    		Util.validationWSResponse(socket,checkNameAndSid,validationPrompt,nameInput.value);	    	
+	    		Util.validationWSResponse(form,socket,nameData,validationPrompt,nameInput.value);	    	
 	    	}else{
 	    		validationPrompt.innerHTML = "There's a problem connecting to the server please try again later!";
 	    	}
@@ -106,14 +110,13 @@ class Util {
     };
 
     static appendElements(playerListDiv,name, dataKey){
-		console.log('Na trigger na ang appendElements nga function!');
 		let mainDiv = document.createElement("div");
 		mainDiv.classList.add("d-flex", "justify-content-between", "my-2");
 		let nameH6 = document.createElement("h6");
 		nameH6.classList.add("my-2");
 		nameH6.textContent = name;
 		let challengeBtn = document.createElement("button");
-		challengeBtn.classList.add("btn", "btn-success", "btn-sm");
+		challengeBtn.classList.add("btn", "btn-primary", "btn-sm");
 		challengeBtn.setAttribute("type", "button");
 		challengeBtn.setAttribute("data-key", dataKey);
 		challengeBtn.textContent = "Challenge";
@@ -123,7 +126,7 @@ class Util {
 	};
 
 	static appendPlayer(playerListDiv,name, dataKey){
-		console.log('Na trigger na ang appendElements nga function!');
+		
 		let mainDiv = document.createElement("div");
 		mainDiv.classList.add("d-flex", "justify-content-between", "my-2");
 		let nameH6 = document.createElement("h6");
@@ -162,10 +165,8 @@ class Util {
     static playerReady(socket,id){
 		if(localStorage.getItem('lineExecuted') === 'false'){
 			socket.send(JSON.stringify({ type: 'playerReady', playersID: id}));
-			console.log('ready to play: ');
 			
 			localStorage.setItem('lineExecuted', true);
-			console.log('lineExecuted: ', localStorage.getItem('lineExecuted'));
 			
 		}
 
@@ -182,3 +183,4 @@ class Util {
 }
 
 export default Util;
+

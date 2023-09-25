@@ -3,20 +3,23 @@ const path = require('path');
 const ejs = require('ejs');
 const WebSocket = require('ws');
 
-const wsPort = 4001; // Using port 4001 for WebSocket server
+const wsPort = 4000; // Using port 4001 for WebSocket server
 
 let clients = {};
 
-const webSocketConnections=()=>{
-
-	// Create a WebSocket server instance
-	const wss = new WebSocket.Server({ port: wsPort });
+const webSocketConnections=(server)=>{
 	
+	// Create a WebSocket server instance
+	const wss = new WebSocket.WebSocketServer({ server });
+	//const wss = new WebSocket.Server({ port: wsPort});
 	// Handle incoming websocket connections
 	wss.on('connection', (conn, req) => {
 		console.log('New client connected on the websocket server');
-		
 
+		const clientIp = req.connection.remoteAddress;
+		console.log('Client IP: ',clientIp);
+
+		console.log('req.headers.cookie: ',req.headers.cookie);
 		const cookies = parseCookies(req.headers.cookie);
 		let sid = cookies.sessidrps;
 
@@ -33,33 +36,18 @@ const webSocketConnections=()=>{
 			}
 		}
 		
-	
 		// Handle messages from the client
 		conn.on('message', message => {
 			
 			let data = JSON.parse(message.toString());
 			let responseObject={};
 			
-			if(data.hasOwnProperty('checkName')){
-				
-				let haveSid;
-				let userName;
-				let cookieValue;
-				
-				if(sid){
-					userName = getUserName(sid);
-					haveSid = true;
-				}else{
-					
-					haveSid = false;
-				}
+			if(data.type ==='checkName'){
 
-				let nameExistAndSid = checkNameIfExist(data.name,sid);
+				let accountInfo = checkAccountExistence(data.name,sid,clientIp);
 				
-				responseObject.nameExistAndSid = nameExistAndSid;
-				responseObject.haveSid = haveSid;
-				responseObject.userName = userName;
-				
+				responseObject.accountInfo = accountInfo;
+				console.log('responseObject: ',responseObject);
 				conn.send(JSON.stringify(responseObject));
 			}
 
@@ -79,13 +67,12 @@ const webSocketConnections=()=>{
 			}
 
 			if(data.type === 'playerReady'){
-				console.log('the player ready is: ',sid);
-				console.log('data received in server: ',data);
+				let userName = getUserName(data.playersID);
 				setTimeout(()=>{
 					
 					Object.keys(clients).forEach((clientID)=>{
 						if(clientID !== data.playersID){
-							clients[clientID].send(JSON.stringify({ type: 'displayOtherUsers', userKey: sid, playerName: name}));
+							clients[clientID].send(JSON.stringify({ type: 'displayOtherUsers', userKey: data.playersID, playerName: userName}));
 						}
 					});
 
@@ -93,7 +80,7 @@ const webSocketConnections=()=>{
 			}
 
 			if(data.type === 'playerNotReady'){
-				console.log('data received in server: ',data);
+				
 				setTimeout(()=>{
 					Object.keys(clients).forEach((clientID)=>{
 						if(clientID !== sid){
@@ -154,6 +141,27 @@ const webSocketConnections=()=>{
 	});
 }
 
+const checkUserStatus=(sid)=>{
+	let insideSidJson = loadsessIDFromJSON();
+	let foundSid={};
+	checkUserLoop: for(let key in insideSidJson){
+		if(key === sid){
+			foundSid[key] = insideSidJson[key];
+			break checkUserLoop;
+		}
+	}
+
+	if(Object.keys(foundSid).length > 0){
+		if(foundSid[sid].status){
+			return true;
+		}else{
+			return false;
+		}
+	}else{
+		return false;
+	}
+}
+
 const sessionedUser=(res,sid)=>{
 	const readStream = fs.createReadStream(`${__dirname}/misc/ejs/main.ejs`, 'utf8');
 
@@ -166,7 +174,36 @@ const sessionedUser=(res,sid)=>{
     console.log('on data',htmlData);
   });
 
+  readStream.on('end', () => {
+  	console.log('on end',htmlData);
+		const renderedHtmlData = ejs.render(htmlData, {
+			currentUsersId: sid,
+			userName: userName,
+			activeUser: activeUser
+    });
+    
+    // Send the rendered html string
+    res.writeHead(200, { 'Content-Type': 'text/html' });
+    res.end(renderedHtmlData);
+  });
 
+  readStream.on('error', (err) => {
+    res.writeHead(500, { 'Content-Type': 'text/plain' });
+    res.end('Internal Server Error');
+  });
+}
+
+const registerUser=(res,sid,name)=>{
+	const readStream = fs.createReadStream(`${__dirname}/misc/ejs/main.ejs`, 'utf8');
+
+	let userName = name;
+	let activeUser = getAllUserActive(sid);
+	let htmlData = '';
+
+  readStream.on('data', (chunk) => {
+    htmlData += chunk;
+    console.log('on data',htmlData);
+  });
 
   readStream.on('end', () => {
   	console.log('on end',htmlData);
@@ -176,9 +213,10 @@ const sessionedUser=(res,sid)=>{
 			activeUser: activeUser
     });
     
-    console.log('sessionedUser function: EJS template engine works!');
-
     // Send the rendered html string
+		const oneYearFromNow = new Date();
+		oneYearFromNow.setFullYear(oneYearFromNow.getFullYear() + 1);
+	  res.setHeader('Set-Cookie', `sessidrps=${sid};Expires=${oneYearFromNow.toUTCString()};HttpOnly;Path=/`);
     res.writeHead(200, { 'Content-Type': 'text/html' });
     res.end(renderedHtmlData);
   });
@@ -193,21 +231,6 @@ const serverResponseHeader=(res,filePath)=>{
 		let urlExtension = path.extname(filePath).toLowerCase();
 		res.writeHead(200,{'Content-Type': contentSpecifier(urlExtension)});
 		fs.createReadStream(filePath).pipe(res);
-}
-
-const checkUserStatus=(sid)=>{
-	let insideSidJson = loadsessIDFromJSON();
-	const arrayOfObjects = Object.entries(insideSidJson).map(([key, obj]) => ({ [key]: obj }));
-	let userDetails = arrayOfObjects.find(obj => sid in obj);
-	if(userDetails){
-		if(userDetails[sid].status){
-			return true;
-		}else{
-			return false;
-		}
-	}else{
-		return false;
-	}
 }
 
 const parseCookies=(cookieHeader)=>{
@@ -298,57 +321,161 @@ const getAllUserName=(sid)=>{
 	}
 }
 
-const checkNameIfExist=(name,sid)=>{
-	let insideJsonFile=loadsessIDFromJSON(fs);
-	let hasName;
-	let sidMatch;
+const checkName = ()=>{
+	let insideJsonFile=loadsessIDFromJSON();
+
+	let resultObj = {};
+
+	for (const key in insideJsonFile) {
+		if(insideJsonFile[key].name === "rommel08"){
+			resultObj[key] = insideJsonFile[key];
+		}
+	}
+
+	console.log("foundName: ",resultObj);
+
+	/*let arrOfobj = Object.values(insideJsonFile);
+	let foundName = arrOfobj.find((elem)=>{
+		return elem.name === "rommel08";
+	});
+
+	if(foundName){
+		console.log("foundName: ",foundName);
+	}else{
+		console.log("foundName: ",foundName);
+	}*/
+}
+
+const checkAccountExistence = (name,sid,ip)=>{
+
+	let hasName = false;
+	let sidMatch = false;
+	let ipMatch = false;
 	let newKey;
 	let resultObject={};
-	if(insideJsonFile){
+
+  function initResult(name,cookie,ipAdd,userName){
+  	if(userName){
+  		resultObject.userName = userName;
+  	}
+  	resultObject.hasName = name;
+		resultObject.sidMatch = cookie;
+		resultObject.ipMatch = ipAdd;
+  }
+	
+	let insideJsonFile=loadsessIDFromJSON();
+	console.log('checkAccountExistence: ',insideJsonFile);
+	let resultNames = {};
+	for (let key in insideJsonFile) {
+		if(insideJsonFile[key].name === name){
+			resultNames[key] = insideJsonFile[key];
+		}
+	}
+	
+	console.log('resultNames: ',resultNames);
+	// IF NAME FOUND
+	if(Object.keys(resultNames).length > 0){
+		hasName = true;
+		// INITILIZE PROPERTY NAME AND VALUE OF THE OUTPUT RESULT OBJECT 
 		
-		const arrayOfObjects = Object.entries(insideJsonFile).map(([key, obj]) => ({ [key]: obj }));
-		const existObject = arrayOfObjects.find(obj => {
-		  const key = Object.keys(obj)[0];
-		  return obj[key].name === name;
-		});
-		
-		
-		if(existObject){
+		let sidFound = {};
+		sidFoundLoop: for(let key in resultNames){
+			if (key === sid){
+				sidFound[key] = resultNames[key];
+				break sidFoundLoop;
+			} 
+		}
+		console.log('sidFound: ',sidFound);
+		// IF COOKIE FOUND
+		if(Object.keys(sidFound).length > 0){
+			sidMatch = true;
+			let key = Object.keys(sidFound)[0];
+			// IF IP FOUND
+			if(sidFound[key].ipAddress === ip){
+				editStatusInJson(sid,true);
+				console.log('key: ',key);
+				ipMatch = true;
+				// hasName = true, sidmatch = true, ipMatch = true
+				initResult(hasName,sidMatch,ipMatch);
+		 		return resultObject;
+			}
+		// IF COOKIE NOT FOUND 
+		}else{
 			hasName = true;
-			const targetKey = Object.keys(existObject)[0];
-			if(sid === undefined){
+			sidMatch = false;
+			let ipFound = {};
+			ipFoundLoop: for(let key in resultNames){
+				if (resultNames[key].ipAddress === ip){
+					ipFound[key] = resultNames[key];
+					break ipFoundLoop;
+				} 
+			}
+			// IF IP FOUND
+			if(Object.keys(ipFound).length > 0){
+				console.log('dinhe dapat sya mo sulod! rommel08');
+				ipMatch = true;
+				resultObject.ipMatch = ipMatch;
+				const targetKey = Object.keys(ipFound)[0];
 				newKey = generateSessionToken();
 				editKeyInJson(newKey,targetKey);
+				resultObject.newKey = newKey;
+				// hasName = true, sidmatch = false, ipMatch = true
+				initResult(hasName,sidMatch,ipMatch);
+		 		return resultObject;
 			}else{
-				if(targetKey === sid){
-			 		sidMatch = true;
-			 	}else{
-			 		sidMatch = false;
-			 		resultObject['hasName'] = hasName;
-				 	resultObject['sidMatch'] = sidMatch;
-				 	resultObject['newKey'] = newKey;
-				 	return resultObject;
-			 	}
+				console.log('dinhe dapat sya mo sulod sa andree08');
+				ipMatch = false;
+				// hasName = true, sidmatch = false, ipMatch = false
+				initResult(hasName,sidMatch,ipMatch);
+		 		return resultObject;
 			}
-		}else{
-			hasName = false;
-			const existID = arrayOfObjects.find(item => Object.keys(item)[0] === sid);
-			if(existID){
-				const existedName = existID[sid].name;
-			  resultObject['existedName'] = existedName;
+		}	
+	// IF NAME NOT FOUND	
+	}else{
+		hasName = false;
+		let foundSid = {};
+		noNameFoundLoop: for (let key in insideJsonFile) {
+			if(key === sid){
+				foundSid[key] = insideJsonFile[key];
+				break noNameFoundLoop;
 			}
-			
 		}
 		
-	 	resultObject['hasName'] = hasName;
-	 	resultObject['sidMatch'] = sidMatch;
-	 	resultObject['newKey'] = newKey;
-	 	return resultObject;
-	}else{
-		resultObject['hasName'] = false;
-	 	resultObject['sidMatch'] = false;
-	 	resultObject['newKey'] = newKey;
-	 	return resultObject;
+		// IF COOKIE FOUND 
+		if(Object.keys(foundSid).length > 0){
+			sidMatch = true;
+			// IF IP FOUND
+			if(foundSid[sid].ipAddress === ip){
+				ipMatch = true;
+				let userName = foundSid[sid].name;
+				initResult(hasName,sidMatch,ipMatch,userName);
+				// hasName = false, sidmatch = true, ipMatch = true
+				return resultObject;
+			}
+		// IF COOKIE NOT FOUND 
+		}else{
+			let onlyIp={};
+			onlyIpLoop: for (let key in insideJsonFile) {
+				if(insideJsonFile[key].ipAddress === ip){
+					onlyIp[key] = insideJsonFile[key];
+					break onlyIpLoop;				}
+			}
+			if(Object.keys(onlyIp).length > 0){
+				console.log('dinhe dapat sya mo sulod kung lahi nga name');
+				ipMatch=true;
+				let id = Object.keys(onlyIp)[0];
+				let userName = onlyIp[id].name;
+				// hasName = false, sidmatch = false, ipMatch = true
+				initResult(hasName,sidMatch,ipMatch,userName);
+				return resultObject;
+			}else{
+				ipMatch=false;
+				sidMatch = false;
+				// hasName = false, sidmatch = false, ipMatch = false
+				initResult(hasName,sidMatch,ipMatch);
+				return resultObject;
+			}
+		}
 	}
 }
 
@@ -472,7 +599,7 @@ module.exports = {
 	addUserToJSON,
 	loadsessIDFromJSON,
 	serverResponseHeader,
-	checkNameIfExist,
+	checkAccountExistence,
 	contentSpecifier,
 	getUserName,
 	editKeyInJson,
@@ -480,5 +607,7 @@ module.exports = {
 	checkUserStatus,
 	editStatusInJson,
 	sessionedUser,
-	webSocketConnections
+	webSocketConnections,
+	checkName,
+	registerUser
 }

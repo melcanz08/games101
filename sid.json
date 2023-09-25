@@ -1,14 +1,7 @@
 {
-  "5242941d-8154-447d-9773-8a06914c8959": {
+  "user2": {
     "name": "rommel08",
-    "status": true
-  },
-  "ee503c66-2437-4854-918e-c58214cbf194": {
-    "name": "andree08",
-    "status": true
-  },
-  "360c5818-7631-4d9a-952f-4897ccd8296f": {
-    "name": "paupau08",
-    "status": true
+    "ipAddress": "::ffff:656.0.0.1",
+    "status": false
   }
 }

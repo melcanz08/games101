@@ -3,32 +3,24 @@ import Util from './classes.js';
 window.addEventListener('load', function() {
 
 	Util.settingLocalStorageItems();
-	console.log('lineExecuted: ', localStorage.getItem('lineExecuted'));
+	
 
-	let webSocket=null;
+	let sock=null;
 	const ws = ()=>{
-		webSocket = new WebSocket('ws://localhost:4001');
-		webSocket.onopen = () => {
-	        console.log('WebSocket connection established!');
-
-	        // INDEX.HTML VALIDATION FOR USERS INPUT
+		sock = new WebSocket('ws://localhost:3000');
+		sock.onopen = () => {
 			const submitForm = Util.tag('form','id','loginForm');
 			if(submitForm){
 				const regex = /^[\w]{8}$/;
 				submitForm.onsubmit=(e)=>{
 					e.preventDefault();
-					Util.playerRegistryValidation(webSocket,regex);
+					Util.playerRegistryValidation(submitForm,sock,regex);
 				}				
 			}
-
-			// INDEX.HTML WHEN USER GOES TO HOMEPAGE PLAYER WILL NOT BE SHOWN ON PLAYERLIST VIA WEBSOCKET PROCESS
 			const inputName = Util.tag('input','name','name');
 			if(inputName){
-				webSocket.send(JSON.stringify({ type: 'playerNotReady'}));
-				console.log('not ready to play: ');
+				sock.send(JSON.stringify({ type: 'playerNotReady'}));
 			}
-			
-			// MAIN.EJS - CHALLENGING PLAYERS IN THE GAME
 			const challengeButtons = Util.arrOftags('#playersList','button');
 			if(challengeButtons){
 				const buttonsArray = [...challengeButtons];
@@ -46,8 +38,7 @@ window.addEventListener('load', function() {
 				        	defenderName,
 				        	defenderID
 				      	};
-
-				      	webSocket.send(JSON.stringify(challengeData));
+				      	sock.send(JSON.stringify(challengeData));
 				       	enemyPlayerDiv.innerHTML= `<p class="text-center">Wait for player response . . .</p>`;
 				       	let btnArray = document.querySelectorAll(".btn");
 			    		btnArray.forEach((elem)=>{
@@ -56,30 +47,18 @@ window.addEventListener('load', function() {
 				    };
 				});
 			}
+	
+			let playerListDiv = Util.tag('div','id','playersList');
+	    };
 
-			// MAIN.EJS WHEN OTHER PLAYERS ONLINE - SHOW IN THE PLAYER NAME IN THE PLAYER LIST WEBSOCKET PROCESS
-			let currentUsersID;
-			let nameDiv = Util.tag('h3','id','userName');
-			if(nameDiv){
-				currentUsersID = nameDiv.getAttribute('data-key');
-			}
-			const playerListDiv = Util.tag('div','id','playersList');
-			if(playerListDiv){
-				Util.playerReady(webSocket,currentUsersID);
-			}
-				
-
-			let defenderEntry;
-			let challengerEntry;
-	        webSocket.onmessage = event => {
-		    	let data = JSON.parse(event.data);
-				console.log('data received from ready player: ',event.data);
-
+		let defenderEntry;
+		let challengerEntry;
+		sock.onmessage = (event) => {
+		   		let data = JSON.parse(event.data);
 		    	let currentUserName = Util.tag('h3','id','userName');
 		    	let sessionedUserName;
 		    	if(currentUserName){sessionedUserName = currentUserName.textContent;}
 		    	let noPlayerElem = Util.tag('h6','id','otherPlayer');
-				
 				const setEntry=(entry,player,id)=>{
 					if(player === 'challenger'){
 						
@@ -88,73 +67,68 @@ window.addEventListener('load', function() {
 	                  		weapon: entry,
 	                  		defenderID: id
 	                  	};
-	                  	webSocket.send(JSON.stringify(data));
+	                  	sock.send(JSON.stringify(data));
 	                  
-					}else{
+					}else if(player === 'defender'){
 						
 						let data = { 
 	                  		type: 'defenderEntry', 
 	                  		weapon: entry,
 	                  		challengerID: id
 	                  	};
-	                  	webSocket.send(JSON.stringify(data));
+	                  	sock.send(JSON.stringify(data));
 	                  	
 					} 		
               	};
-
-              	// Set the countdown time in seconds
-		        const countdownTimeInSeconds = 10; // Change this to 10 seconds
-
-		        // Function to update the timer display
+		        const countdownTimeInSeconds = 10; 
 		        function updateTimerDisplay(seconds) {
 		            const formattedTime = String(seconds).padStart(2, '0');
 		            document.getElementById('timer').textContent = formattedTime;
 		        }
-
-		        // Function to start the countdown
 		        function startCountdown(player,id) {
 		            let secondsLeft = countdownTimeInSeconds;
 		            updateTimerDisplay(secondsLeft);
-
 		            const countdownInterval = setInterval(() => {
 		                secondsLeft--;
 		                if (secondsLeft < 0) {
 		                	clearInterval(countdownInterval);
-
 		                	let url = Util.tag('img','id','rpsImage');
 		                	let partial = url.getAttribute("src");
 		                    let selection = partial.split("/").pop().split(".")[0];
-
-		                	if(player === "challenger"){
-		                		challengerEntry = selection;
-		                		console.log('setEntry function challengerEntry: ',challengerEntry);
-		                	}else{
-		                		defenderEntry = selection;
-		                		console.log('setEntry function defenderEntry: ',defenderEntry);
-		                	}
-
-		                	alert('Time\'s up!');
+							if(player === "challenger"){
+								challengerEntry = selection;
+							}else if(player === "defender"){
+								defenderEntry = selection;
+							}
+		                	alert('Time\'s up!',player);
 		                	setEntry(selection,player,id);
 		                } else {
 		                    updateTimerDisplay(secondsLeft);
 		                }
-		            }, 1000); // Update the timer every 1 second
+		            }, 1000);
 		        }
 
 				if(data.type === 'displayOtherUsers'){
-			  		console.log('Pero na receive kaya ang data: ',data);
+			  		let playerListDiv = Util.tag('div','id','playersList');
 			  		if(data.playerName !== sessionedUserName){
-			  			console.log('sessionedUserName: ',sessionedUserName);
-			  			console.log('data.playerName: ',data.playerName);
-			  			Util.appendElements(playerListDiv,data.playerName, data.userKey);
 			  			if(noPlayerElem){
+			  				Util.appendElements(playerListDiv,data.playerName, data.userKey);
 			  				noPlayerElem.remove();
-			  			}
-			  			
+			  			}else{
+			  				const childElements = Array.from(playerListDiv.children);
+				  			const foundChild = childElements.find((child) => {
+				  				const headerName = child.querySelector('h3').textContent;
+			  					return headerName === data.playerName;
+				  			});
+				  			if(foundChild === undefined){
+				  				Util.appendElements(playerListDiv,data.playerName, data.userKey);
+				  			}
+				  		}
 			  		}
 			  	}
 
 			  	if(data.removeName === true){
+			  		let playerListDiv = Util.tag('div','id','playersList');
 			  		if(playerListDiv){
 			  			if(playerListDiv.children.length !== 0){
 			  				for (let i = 0; i < playerListDiv.children.length; i++) {
@@ -162,8 +136,6 @@ window.addEventListener('load', function() {
 								let btnElem = childElement.querySelector('button');
 		 						if(btnElem){
 								  	if (btnElem.getAttribute('data-key') === data.userKey) {
-								  	
-								    // Remove the matching child element
 								    playerListDiv.removeChild(childElement);
 									    if(playerListDiv.childElementCount === 0){
 									    	playerListDiv.innerHTML = `<h6 class="text-center text-black-50 my-2" id="otherPlayer" style="display: block;">
@@ -189,7 +161,7 @@ window.addEventListener('load', function() {
 			    			challengerID: data.challengerID,
 			    			defenderID: data.defenderID
 			    		}
-			    		webSocket.send(JSON.stringify(acceptData));
+			    		sock.send(JSON.stringify(acceptData));
 			    		let btnArray = document.querySelectorAll(".btn");
 			    		btnArray.forEach((elem)=>{
 			    			elem.disabled = true;
@@ -207,7 +179,7 @@ window.addEventListener('load', function() {
 			    			type: 'challenge_declined',
 			    			challenger: data.challenger
 			    		}
-			    		Util.wsSend(webSocket,declineData, (data)=>{
+			    		Util.wsSend(sock,declineData, (data)=>{
 			    			
 			    		});	
 					}
@@ -233,40 +205,47 @@ window.addEventListener('load', function() {
 				        return `<span class="text-danger"><strong><em>You lost!</em></strong></span>`;
 				    }
 		  		}
-
-			  	if(data.type === 'challengerEntry'){
-			  		console.log('challengerEntry: ',data);
+			  	if(data.type === 'challengerEntry'){	
 			  		let enemyDiv = Util.tag('div','id','enemyChoice');
-			  		
-	    			console.log('defenderEntry: ',defenderEntry);
+	    			if(!defenderEntry){
 	    			const waitForDefenderEntry = setInterval(()=>{
-	    				if(defenderEntry!==undefined){
-	    					clearInterval(waitForDefenderEntry);
+						if(defenderEntry){
+							clearInterval(waitForDefenderEntry);
 	    					let timer = Util.tag('div','id','timer');
 	    					let btnArray = document.querySelectorAll(".btn");
 			    			enemyDiv.innerHTML = `<div class="col-xs-1 col-sm-4 col-md-4 col-lg-4 mx-auto text-center">
 			                	<img src="/assets/images/${data.entry}.png" class="rounded-circle mx-auto" style="height: 100px; width: 130px;" />
 			              	</div>`;
 			              	timer.innerHTML = processEntry(defenderEntry,data.entry);
-
 				    		btnArray.forEach((elem)=>{
 				    			elem.disabled = false;
 				    		});
-	    				}
-	    				console.log('waiting for challenger move!');
+						}
+	
 	    			},1000);
-			  		
+				}else{
+					let timer = Util.tag('div','id','timer');
+					let btnArray = document.querySelectorAll(".btn");
+	    			enemyDiv.innerHTML = `<div class="col-xs-1 col-sm-4 col-md-4 col-lg-4 mx-auto text-center">
+	                	<img src="/assets/images/${data.entry}.png" class="rounded-circle mx-auto" style="height: 100px; width: 130px;" />
+	              	</div>`;
+	              	timer.innerHTML = processEntry(defenderEntry,data.entry);
+
+		    		btnArray.forEach((elem)=>{
+		    			elem.disabled = false;
+		    		});
+				}
+					
 			  	}
 
 			  	if(data.type === 'defenderEntry'){
-			  		console.log('defenderEntry: ',data);
 			  		let enemyDiv = Util.tag('div','id','enemyChoice');
-			  		
-	              	console.log('challengerEntry: ',challengerEntry);
+			  		if(!challengerEntry){
+					
 	              	const waitForChallengerEntry = setInterval(()=>{
-	    				if(challengerEntry!==undefined){
-	    					clearInterval(waitForChallengerEntry);
-	    					let timer = Util.tag('div','id','timer');
+				if(challengerEntry){
+					clearInterval(waitForChallengerEntry);
+					let timer = Util.tag('div','id','timer');
 	    					let btnArray = document.querySelectorAll(".btn");
 	    					enemyDiv.innerHTML = `<div class="col-xs-1 col-sm-4 col-md-4 col-lg-4 mx-auto text-center">
 			                	<img src="/assets/images/${data.entry}.png" class="rounded-circle mx-auto" style="height: 100px; width: 130px;" />
@@ -275,14 +254,24 @@ window.addEventListener('load', function() {
 			              	btnArray.forEach((elem)=>{
 				    			elem.disabled = false;
 				    		});
-	    				}
-	    				console.log('waiting for defender move!');
+				}
+	    				
+	    					
 	    			},1000);
-			  		
+					}else{
+						let timer = Util.tag('div','id','timer');
+	    					let btnArray = document.querySelectorAll(".btn");
+	    					enemyDiv.innerHTML = `<div class="col-xs-1 col-sm-4 col-md-4 col-lg-4 mx-auto text-center">
+			                	<img src="/assets/images/${data.entry}.png" class="rounded-circle mx-auto" style="height: 100px; width: 130px;" />
+			              	</div>`;
+			              	timer.innerHTML = processEntry(challengerEntry,data.entry);
+			              	btnArray.forEach((elem)=>{
+				    			elem.disabled = false;
+				    		});
+					}
 			  	}
 			};
-	    };
-	    webSocket.onclose = (event) => {
+	    sock.onclose = (event) => {
 	        if (!event.wasClean) {
 	            console.log('Connection abruptly closed, Reconnecting...');
 	            setTimeout(()=>{ws();},1000);
@@ -293,12 +282,29 @@ window.addEventListener('load', function() {
 	    }; 
 	}
 	
-	if(webSocket === null){
+	if(sock === null){
 		ws();
 	}
-	
 
-	// INDEX.HTML SPACE IN INPUT FIELD NAME IN INDEX.HTML NOT ALLOWED
+	let currentUsersID;
+	let nameDiv = Util.tag('h3','id','userName');
+	if(nameDiv){
+		currentUsersID = nameDiv.getAttribute('data-key');
+		const displayActiveUser = setInterval(()=>{
+		console.log("Websocket not ready!"); 
+			if(sock !== null){
+				if(sock.readyState === WebSocket.OPEN){
+					clearInterval(displayActiveUser);
+					if(localStorage.getItem('lineExecuted') === 'false'){
+						sock.send(JSON.stringify({ type: 'playerReady', playersID: currentUsersID}));
+						localStorage.setItem('lineExecuted', true);	
+					}
+				}
+			}
+		}, 1000);
+		
+	}
+	
 	const inputName = Util.tag('input','name','name');
 	if(inputName){
 		inputName.onkeydown=(e)=>{
@@ -345,13 +351,10 @@ window.addEventListener('load', function() {
             if (secondsLeft < 0) {
             	clearInterval(countdownInterval);
             	clearInterval(botAnimateMoveID);
-
             	let url = Util.tag('img','id','rpsImage');
             	let partial = url.getAttribute("src");
                 let selection = partial.split("/").pop().split(".")[0];
-                
             	alert('Time\'s up!');
-            	
             	let rpsBotImage = Util.tag('img','id','rpsBotImage');
             	let timer = Util.tag('div','id','timer');
             	const computerChoice = getComputerChoice();
@@ -375,11 +378,7 @@ window.addEventListener('load', function() {
 		   	if(mainDivTimer){
 		   		mainDivTimer.remove();
 		   	}
-
-			// INSERT THE TIMER TEXT WHICH IN THIS CASE STARTS AT 10
 	      	Util.prependTimer();
-			
-			// REPLACE IMAGE AND NAME IN ENEMY DIV
     		let enemyPlayerDiv = Util.tag('div','id','enemyPlayer');
     		enemyPlayerDiv.innerHTML = `<div class="container">
             <h3 class="text-center"  id="userName">Computer</h3>
@@ -390,13 +389,11 @@ window.addEventListener('load', function() {
         		</div>
       		</div>`;
 
-      		// DISABLE ALL BUTTON WHEN BOT BUTTON WAS CLICK
       		let btnArray = document.querySelectorAll(".btn");
     		btnArray.forEach((elem)=>{
     			elem.disabled = true;
     		});
 
-    		// ANIMATE COMPUTER MOVE EVERY 1 SECOND
       		let currentImageIndex = 0;
 			let images = [
 				"/assets/images/rock.png",
@@ -410,21 +407,16 @@ window.addEventListener('load', function() {
 	      		currentImageIndex = (currentImageIndex + 1) % images.length;
 				rpsBotImage.src = images[currentImageIndex];
 	      	},1000);
-
-	      	// RUN THE TIMER AND REVEAL GAME RESULT
 			countDownVsBot(botAnimateMove, btnArray);
 		}
 	}
 
-	// MAIN.EJS setting the localstorage item "lineExecuted" to false when logout cliccked
 	let logoutLink = Util.tag('a','href','/logout');
 	if(logoutLink){
 		logoutLink.onclick=()=>{
 			localStorage.setItem('lineExecuted', 'false');
 		}
 	}
-
-	// MAIN.EJS WHEN IMG ELEMENT IS CLICKED CHANGE THE IMAGE SOURCE
 	const rpsImage = Util.tag('img','id','rpsImage');
 	if(rpsImage){
 		let currentImageIndex = 0;
