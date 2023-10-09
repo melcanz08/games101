@@ -3,15 +3,5 @@
     "name": "rommel08",
     "ipAddress": "::ffff:656.0.0.1",
     "status": false
-  },
-  "f9d03fa5-8398-4996-874e-f6888eceed61": {
-    "name": "andree08",
-    "userID": "a46e6a2a-14c9-433d-a57d-ebd92e6c7e54",
-    "status": true
-  },
-  "172e3ea1-33eb-4639-a820-ab2780341383": {
-    "name": "paupau08",
-    "userID": "a3cc84a5-53e9-47ec-8b0d-367fabce68c2",
-    "status": true
   }
 }
