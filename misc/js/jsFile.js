@@ -4,7 +4,7 @@ window.addEventListener('load', function() {
 
 	Util.settingLocalStorageItems('lineExecuted', false);
 
-	Util.ws("ws://localhost:3000");
+	Util.ws("wss://rpsgame2023.onrender.com");
 
 	const wsMsgProcessor = (socket)=>{
 		let playerListDiv = Util.el('id','playersList');
