@@ -13,7 +13,7 @@ class Util {
 	        if (!event.wasClean) {
 	            console.log('Connection abruptly closed, Reconnecting...');
 	            console.log(sok);
-	            setTimeout(()=>{Util.ws("ws://localhost:3000");},2000);
+	            setTimeout(()=>{Util.ws("wss://rpsgame2023.onrender.com");},2000);
 	            
 	        }else{
 	        	console.log('Disconnection of websocket from server to client was clean!');
