@@ -7,9 +7,8 @@ const util = require('./utilmodule');
 const httpPort = process.env.PORT || 3000;
 const WebSocket = require('ws');
 
-const sessID = {};
-const userName = {};
 
+const userName = {};
 
 // UNCOMMENT WHEN UPLOADING THE PROJECT TO LIVE-SERVER/INTERNET/WEBHOSTING
 /*if(cluster.isMaster){
@@ -28,10 +27,6 @@ const userName = {};
 
 	// IF THIS IS A WORKER PROCESS, CREATE THE SERVER
 const server = http.createServer((req, res)=>{
- 	console.log(req.url);
-
- 	const clientIp = req.connection.remoteAddress;
-	console.log('Client IP: ',clientIp);
 
 	const parsedUrl = url.parse(req.url, true);
 	
@@ -42,7 +37,6 @@ const server = http.createServer((req, res)=>{
 		if(req.url === '/favicon.ico'){
 			res.writeHead(200, {'Content-Type': 'image/x-icon'});
 			res.end();
-			
 			return;
 		}
 
@@ -50,7 +44,13 @@ const server = http.createServer((req, res)=>{
 		let filePath;
 		if(req.url === '/' && req.method === 'GET'){
 			let cookies = util.parseCookies(req.headers.cookie);
-			if(util.checkUserStatus(cookies.sessidrps)){
+			let sessionID;
+			if(cookies){
+				sessionID = cookies.sessidrps
+			}
+			console.log('util.checkUserStatus(sessionID)', util.checkUserStatus(sessionID));
+			console.log('util.loadsessIDFromJSON() sa get \: ', util.loadsessIDFromJSON());
+			if(util.checkUserStatus(sessionID)){
 				util.sessionedUser(res,cookies.sessidrps);
 			}else{
 				filePath = `${__dirname}/misc/html/index.html`;
@@ -60,6 +60,7 @@ const server = http.createServer((req, res)=>{
 		// ACTUAL SETTING OF COOKIE/SESSION, ADDING USER NAME AND USER STATUS
 		}else if(req.url === '/' && req.method === 'POST'){
 			let data;
+			const sessID = {};
 			req.on('data', chunk => {
 				data = chunk.toString();		
 			 });
@@ -71,15 +72,20 @@ const server = http.createServer((req, res)=>{
 				// OUTPUT: { NAME: 'JOHN DOE' }
 
 				// CREATE UNIQUE ID FOR SESSION
-				let newSessionId = util.generateSessionToken();
+				const newSessionId = util.generateSessionToken();
+				const userID = util.generateSessionToken();
 				sessID[newSessionId] = {}; // INITIALIZE AN EMPTY SESSION OBJECT
 				// STORE THE SESSION INFORMATION IN THE SESSID VARIABLE.
 				sessID[newSessionId].name = userName.name;
-				sessID[newSessionId].ipAddress = clientIp;
+				sessID[newSessionId].userID = userID;
 				sessID[newSessionId].status = true;
 				// ADD SESSION DATA BACK TO THE JSON FILE
 				util.addUserToJSON(sessID);
-				util.registerUser(res,newSessionId,userName.name);
+				const oneYearFromNow = new Date();
+				oneYearFromNow.setFullYear(oneYearFromNow.getFullYear() + 1);
+				res.setHeader('Set-Cookie', `sessidrps=${newSessionId};Expires=${oneYearFromNow.toUTCString()};SameSite=none;secure;HttpOnly;Path=/`);
+				res.writeHead(302,{'Location': '/'});
+				res.end();
 			});
 
 		// FOR /MAIN ROUTE
@@ -96,8 +102,14 @@ const server = http.createServer((req, res)=>{
 				
 		// FOR LOGGING OUT THE USER 
 		}else if(req.url === '/logout' && req.method === 'GET'){
+			console.log('req.url', req.url);
 			let cookies = util.parseCookies(req.headers.cookie);
-			if(util.editStatusInJson(cookies.sessidrps,false)){
+			let sessionID; 
+			if(cookies){
+				sessionID = cookies.sessidrps;
+			}
+			console.log('util.editStatusInJson(sessionID,false): ',util.editStatusInJson(sessionID,false));
+			if(util.editStatusInJson(sessionID,false)){
 				res.writeHead(302,{'Location': '/'});
 				res.end();
 			}else{
@@ -121,10 +133,10 @@ const server = http.createServer((req, res)=>{
 	}else{
 		const {pathname, query} = parsedUrl;
 		if(pathname === '/set'){
-			util.editStatusInJson(query.newUUIDKey,true)
+			util.editStatusInJson(query.newUUIDKey,true);
 			const oneYearFromNow = new Date();
 			oneYearFromNow.setFullYear(oneYearFromNow.getFullYear() + 1);
-			res.setHeader('Set-Cookie', `sessidrps=${query.newUUIDKey};Expires=${oneYearFromNow.toUTCString()};HttpOnly;Path=/`);
+			res.setHeader('Set-Cookie', `sessidrps=${query.newUUIDKey};Expires=${oneYearFromNow.toUTCString()};SameSite=none;secure;HttpOnly;Path=/`);
 			res.writeHead(302,{'Location': '/'});
 			res.end();
 		}else{
@@ -135,7 +147,7 @@ const server = http.createServer((req, res)=>{
 	}
 });
 
-const wsServer = server.listen(httpPort, ()=>{
+const wsServer = server.listen(httpPort,'0.0.0.0', ()=>{
 	console.log(`Server is running on http://localhost:${httpPort}`);
 });
 util.webSocketConnections(wsServer);

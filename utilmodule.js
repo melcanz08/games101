@@ -3,7 +3,6 @@ const path = require('path');
 const ejs = require('ejs');
 const WebSocket = require('ws');
 
-const wsPort = 4000; // Using port 4001 for WebSocket server
 
 let clients = {};
 
@@ -16,12 +15,13 @@ const webSocketConnections=(server)=>{
 	wss.on('connection', (conn, req) => {
 		console.log('New client connected on the websocket server');
 
-		const clientIp = req.connection.remoteAddress;
-		console.log('Client IP: ',clientIp);
-
 		console.log('req.headers.cookie: ',req.headers.cookie);
 		const cookies = parseCookies(req.headers.cookie);
-		let sid = cookies.sessidrps;
+		let sid;
+		if(cookies){
+			sid = cookies.sessidrps;
+		}
+		
 
 		clients[sid] = conn;
 		
@@ -43,8 +43,9 @@ const webSocketConnections=(server)=>{
 			let responseObject={};
 			
 			if(data.type ==='checkName'){
-
-				let accountInfo = checkAccountExistence(data.name,sid,clientIp);
+				console.log('data.uid: ',data.uid);
+				console.log('sid: ',sid);
+				let accountInfo = checkAccountExistence(data.name,sid,data.uid);
 				
 				responseObject.accountInfo = accountInfo;
 				console.log('responseObject: ',responseObject);
@@ -69,7 +70,6 @@ const webSocketConnections=(server)=>{
 			if(data.type === 'playerReady'){
 				let userName = getUserName(data.playersID);
 				setTimeout(()=>{
-					
 					Object.keys(clients).forEach((clientID)=>{
 						if(clientID !== data.playersID){
 							clients[clientID].send(JSON.stringify({ type: 'displayOtherUsers', userKey: data.playersID, playerName: userName}));
@@ -113,9 +113,9 @@ const webSocketConnections=(server)=>{
 
 		  if(data.type === 'challenge_declined'){
 		  	console.log('challenge declined!');
-		  	const challengerSocket = clients[data.defenderID];
-	      if (challengerSocket) {
-	        challengerSocket.send(JSON.stringify({ type: 'challenge_accepted' }));
+		  	const defenderSocket = clients[data.defenderID];
+	      if (defenderSocket) {
+	        defenderSocket.send(JSON.stringify({ type: 'challenge_declined'}));
 	        // Start the game here
 	      }
 		  }
@@ -143,43 +143,83 @@ const webSocketConnections=(server)=>{
 
 const checkUserStatus=(sid)=>{
 	let insideSidJson = loadsessIDFromJSON();
-	let foundSid={};
-	checkUserLoop: for(let key in insideSidJson){
-		if(key === sid){
-			foundSid[key] = insideSidJson[key];
-			break checkUserLoop;
-		}
-	}
-
-	if(Object.keys(foundSid).length > 0){
-		if(foundSid[sid].status){
-			return true;
-		}else{
-			return false;
-		}
+	if(sid){
+		let foundSid = Object.entries(insideSidJson).find((elem)=>{
+			return elem[0] === sid;
+		});
+		if(foundSid){
+			let foundObj = foundSid[1];
+			console.log('foundObj: ',foundObj);
+			if(foundObj.status === true){
+				return true;
+			}else{
+				return false;
+			}
+		}else{return false;}
 	}else{
 		return false;
 	}
 }
 
+const getUserId=(sid)=>{
+	let insideSidJson = loadsessIDFromJSON();
+	const arr = Object.entries(insideSidJson);
+	const uid = arr.find(([key, value]) => key === sid)[1].userID;
+	return uid;
+}
+
+const getAllUserActive = (sid)=>{
+	let insideSidJson = loadsessIDFromJSON();
+	if(insideSidJson){
+		let objectNames = {};
+		for(let key in insideSidJson){
+			if(insideSidJson[key].status === true && key !== sid){
+				objectNames[key] = insideSidJson[key];
+			}
+		}
+		return objectNames;
+	}
+}
+
+const getUserName=(sid)=>{
+		let insideSidJson = loadsessIDFromJSON();
+		let userDetails;
+		let userDetailValues;
+		if(insideSidJson){
+			let arrOfObjects =  Object.entries(insideSidJson).map(([key, value]) => ({ [key]: value }));
+			
+			if (arrOfObjects.length === 0) {
+			  return;
+			} else {
+			  userDetails = arrOfObjects.find(obj => sid in obj);
+			  if(userDetails){
+			  	userDetailValues = Object.values(userDetails);
+					return userDetailValues[0].name;
+			  }else{
+			  	return;
+			  }
+			}
+		}return;
+}
+
 const sessionedUser=(res,sid)=>{
 	const readStream = fs.createReadStream(`${__dirname}/misc/ejs/main.ejs`, 'utf8');
-
+	let userid = getUserId(sid);
 	let userName = getUserName(sid);
 	let activeUser = getAllUserActive(sid);
 	let htmlData = '';
 
   readStream.on('data', (chunk) => {
     htmlData += chunk;
-    console.log('on data',htmlData);
+   
   });
 
   readStream.on('end', () => {
-  	console.log('on end',htmlData);
 		const renderedHtmlData = ejs.render(htmlData, {
 			currentUsersId: sid,
 			userName: userName,
-			activeUser: activeUser
+			activeUser: activeUser,
+			userid: userid
     });
     
     // Send the rendered html string
@@ -202,11 +242,11 @@ const registerUser=(res,sid,name)=>{
 
   readStream.on('data', (chunk) => {
     htmlData += chunk;
-    console.log('on data',htmlData);
+   
   });
 
   readStream.on('end', () => {
-  	console.log('on end',htmlData);
+  	
 		const renderedHtmlData = ejs.render(htmlData, {
 			currentUsersId: sid,
 			userName: userName,
@@ -216,7 +256,7 @@ const registerUser=(res,sid,name)=>{
     // Send the rendered html string
 		const oneYearFromNow = new Date();
 		oneYearFromNow.setFullYear(oneYearFromNow.getFullYear() + 1);
-	  res.setHeader('Set-Cookie', `sessidrps=${sid};Expires=${oneYearFromNow.toUTCString()};HttpOnly;Path=/`);
+	  res.setHeader('Set-Cookie', `sessidrps=${sid};Expires=${oneYearFromNow.toUTCString()};SameSite=none;secure;HttpOnly;Path=/`);
     res.writeHead(200, { 'Content-Type': 'text/html' });
     res.end(renderedHtmlData);
   });
@@ -242,8 +282,8 @@ const parseCookies=(cookieHeader)=>{
       	cookies[parts[0].trim()] = parts[1].trim();
       }  
     });
+    return cookies;
   }
-  return cookies;
 }
 
 // Generate a random UUID (version 4
@@ -265,39 +305,6 @@ const loadsessIDFromJSON = () => {
 	return actualData;
 };
 
-const getUserName=(sid)=>{
-		let insideSidJson = loadsessIDFromJSON();
-		let userDetails;
-		let userDetailValues;
-		if(insideSidJson){
-			let arrOfObjects =  Object.entries(insideSidJson).map(([key, value]) => ({ [key]: value }));
-			
-			if (arrOfObjects.length === 0) {
-			  return;
-			} else {
-			  userDetails = arrOfObjects.find(obj => sid in obj);
-			  if(userDetails){
-			  	userDetailValues = Object.values(userDetails);
-					return userDetailValues[0].name;
-			  }else{
-			  	return;
-			  }
-			}
-		}return;
-}
-
-const getAllUserActive = (sid)=>{
-	let insideSidJson = loadsessIDFromJSON();
-	if(insideSidJson){
-		let objectNames = {};
-		for(let key in insideSidJson){
-			if(insideSidJson[key].status === true && key !== sid){
-				objectNames[key] = insideSidJson[key];
-			}
-		}
-		return objectNames;
-	}
-}
 
 const getAllUserName=(sid)=>{
 	let insideSidJson = loadsessIDFromJSON();
@@ -346,21 +353,23 @@ const checkName = ()=>{
 	}*/
 }
 
-const checkAccountExistence = (name,sid,ip)=>{
-
+const checkAccountExistence = (name,sid,userid)=>{
+	console.log('name: ', name);
+  	console.log('sid: ', sid);
+  	console.log('userid: ', userid);
 	let hasName = false;
 	let sidMatch = false;
-	let ipMatch = false;
+	let idMatch = false;
 	let newKey;
 	let resultObject={};
 
-  function initResult(name,cookie,ipAdd,userName){
+  function initResult(name,cookie,id,userName){
   	if(userName){
   		resultObject.userName = userName;
   	}
   	resultObject.hasName = name;
 		resultObject.sidMatch = cookie;
-		resultObject.ipMatch = ipAdd;
+		resultObject.idMatch = id;
   }
 	
 	let insideJsonFile=loadsessIDFromJSON();
@@ -390,43 +399,41 @@ const checkAccountExistence = (name,sid,ip)=>{
 		if(Object.keys(sidFound).length > 0){
 			sidMatch = true;
 			let key = Object.keys(sidFound)[0];
-			// IF IP FOUND
-			if(sidFound[key].ipAddress === ip){
+			// IF ID FOUND
+			if(sidFound[key].userID === userid){
 				editStatusInJson(sid,true);
 				console.log('key: ',key);
-				ipMatch = true;
-				// hasName = true, sidmatch = true, ipMatch = true
-				initResult(hasName,sidMatch,ipMatch);
+				idMatch = true;
+				// hasName = true, sidmatch = true, idMatch = true
+				initResult(hasName,sidMatch,idMatch);
 		 		return resultObject;
 			}
 		// IF COOKIE NOT FOUND 
 		}else{
 			hasName = true;
 			sidMatch = false;
-			let ipFound = {};
-			ipFoundLoop: for(let key in resultNames){
-				if (resultNames[key].ipAddress === ip){
-					ipFound[key] = resultNames[key];
-					break ipFoundLoop;
+			let idFound = {};
+			idFoundLoop: for(let key in resultNames){
+				if (resultNames[key].userID === userid){
+					idFound[key] = resultNames[key];
+					break idFoundLoop;
 				} 
 			}
-			// IF IP FOUND
-			if(Object.keys(ipFound).length > 0){
-				console.log('dinhe dapat sya mo sulod! rommel08');
-				ipMatch = true;
-				resultObject.ipMatch = ipMatch;
-				const targetKey = Object.keys(ipFound)[0];
+			// IF ID FOUND
+			if(Object.keys(idFound).length > 0){
+				idMatch = true;
+				resultObject.idMatch = idMatch;
+				const targetKey = Object.keys(idFound)[0];
 				newKey = generateSessionToken();
 				editKeyInJson(newKey,targetKey);
 				resultObject.newKey = newKey;
-				// hasName = true, sidmatch = false, ipMatch = true
-				initResult(hasName,sidMatch,ipMatch);
+				// hasName = true, sidmatch = false, idMatch = true
+				initResult(hasName,sidMatch,idMatch);
 		 		return resultObject;
 			}else{
-				console.log('dinhe dapat sya mo sulod sa andree08');
-				ipMatch = false;
-				// hasName = true, sidmatch = false, ipMatch = false
-				initResult(hasName,sidMatch,ipMatch);
+				idMatch = false;
+				// hasName = true, sidmatch = false, idMatch = false
+				initResult(hasName,sidMatch,idMatch,name);
 		 		return resultObject;
 			}
 		}	
@@ -444,35 +451,37 @@ const checkAccountExistence = (name,sid,ip)=>{
 		// IF COOKIE FOUND 
 		if(Object.keys(foundSid).length > 0){
 			sidMatch = true;
-			// IF IP FOUND
-			if(foundSid[sid].ipAddress === ip){
-				ipMatch = true;
+			// IF ID FOUND
+			console.log('foundSid[sid].userID: ',foundSid[sid].userID);
+			console.log('userid: ',userid);
+			if(foundSid[sid].userID === userid){
+				idMatch = true;
 				let userName = foundSid[sid].name;
-				initResult(hasName,sidMatch,ipMatch,userName);
-				// hasName = false, sidmatch = true, ipMatch = true
+				initResult(hasName,sidMatch,idMatch,userName);
+				// hasName = false, sidmatch = true, idMatch = true
 				return resultObject;
 			}
 		// IF COOKIE NOT FOUND 
 		}else{
-			let onlyIp={};
-			onlyIpLoop: for (let key in insideJsonFile) {
-				if(insideJsonFile[key].ipAddress === ip){
-					onlyIp[key] = insideJsonFile[key];
-					break onlyIpLoop;				}
+			let onlyId={};
+			onlyIdLoop: for (let key in insideJsonFile) {
+				if(insideJsonFile[key].userID === userid){
+					onlyId[key] = insideJsonFile[key];
+					break onlyIdLoop;				}
 			}
-			if(Object.keys(onlyIp).length > 0){
-				console.log('dinhe dapat sya mo sulod kung lahi nga name');
-				ipMatch=true;
-				let id = Object.keys(onlyIp)[0];
-				let userName = onlyIp[id].name;
-				// hasName = false, sidmatch = false, ipMatch = true
-				initResult(hasName,sidMatch,ipMatch,userName);
+			if(Object.keys(onlyId).length > 0){
+				idMatch=true;
+				sidmatch = false;
+				let id = Object.keys(onlyId)[0];
+				let userName = onlyId[id].name;
+				// hasName = false, sidmatch = false, idMatch = true
+				initResult(hasName,sidMatch,idMatch,userName);
 				return resultObject;
 			}else{
-				ipMatch=false;
+				idMatch=false;
 				sidMatch = false;
-				// hasName = false, sidmatch = false, ipMatch = false
-				initResult(hasName,sidMatch,ipMatch);
+				// hasName = false, sidmatch = false, idMatch = false
+				initResult(hasName,sidMatch,idMatch);
 				return resultObject;
 			}
 		}
@@ -502,19 +511,21 @@ const addUserToJSON=(sessIDData)=> {
 
 const editStatusInJson=(sid,log)=>{
 	try {
-    const data = fs.readFileSync('sid.json', 'utf8');
-    const jsonObject = JSON.parse(data);
+   let insideJsonFile=loadsessIDFromJSON();
+  console.log('insideJsonFile: ',insideJsonFile);
 
-    if (sid in jsonObject) {
+    if (insideJsonFile.hasOwnProperty(sid) ){
     	if(log){
-    		jsonObject[sid].status = true;
+    		insideJsonFile[sid].status = true;
     	}else{
-    		jsonObject[sid].status = false;
+    		insideJsonFile[sid].status = false;
+		 console.log('insideJsonFile[sid].status: ',insideJsonFile[sid].status);
     	}
       
-      const updatedJsonData = JSON.stringify(jsonObject, null, 2);
+      const updatedJsonData = JSON.stringify(insideJsonFile, null, 2);
 
       fs.writeFileSync('sid.json', updatedJsonData, 'utf8');
+	    console.log('insideJsonFile: ',loadsessIDFromJSON());
       return true;
     } else {
       console.error('editStatusInJson function: Change status in JSON file failed! The old key does not exist in the JSON file.');
@@ -609,5 +620,6 @@ module.exports = {
 	sessionedUser,
 	webSocketConnections,
 	checkName,
-	registerUser
+	registerUser,
+	getUserId
 }
